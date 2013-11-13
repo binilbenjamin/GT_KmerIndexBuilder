@@ -22,22 +22,21 @@ public class GTToolInvokerMapper extends Mapper<NullWritable, BytesWritable, Tex
 			throws java.io.IOException, InterruptedException {
 
 		FileSplit split = (FileSplit) context.getInputSplit();
-		String fileName = split.getPath().getName();
+		String fastaName = split.getPath().getName().split("\\.")[0];
 
 		/*
 		 * Create a temp directory to store the input files for GT tool
 		 */
-		File tempDir = new File(System.getProperty("java.io.tmpdir") + File.separator + fileName);
-		if (!tempDir.exists()) {
-			tempDir.mkdirs();
+		File workDir = new File(System.getProperty("java.io.tmpdir") + File.separator + fastaName);
+		if (!workDir.exists()) {
+			workDir.mkdirs();
 		}
-
-		File file = new File(tempDir, fileName);
 
 		/*
 		 * Write the input split into the temp directory
 		 */
-		FileOutputStream fos = new FileOutputStream(file);
+		File inputFastaFile = new File(workDir, split.getPath().getName());
+		FileOutputStream fos = new FileOutputStream(inputFastaFile);
 		fos.write(value.getBytes());
 		fos.close();
 
@@ -50,35 +49,38 @@ public class GTToolInvokerMapper extends Mapper<NullWritable, BytesWritable, Tex
 		String suffixeratorIndexName = context.getConfiguration().get("gt.suffixerator.indexname", "reads");
 		String tallymerIndexName = context.getConfiguration().get("gt.tallymer.indexname", "tyr-reads");
 
+		System.out.println("inputFastaFile.getAbsolutePath() = "+inputFastaFile.getAbsolutePath());
 		System.out.println(Shell.execCommand(gtToolLocation, "suffixerator", "-dna", "-pl", "-tis", "-suf", "-lcp",
-				"-parts", parts, "-db", file.getAbsolutePath(), "-indexname", tempDir.getAbsolutePath()
+				"-parts", parts, "-db", inputFastaFile.getAbsolutePath(), "-indexname", workDir.getAbsolutePath()
 						+ File.separator + suffixeratorIndexName));
 
+		
+		System.out.println("REACHED HERE");
 		System.out.println(Shell.execCommand(gtToolLocation, "tallymer", "mkindex", "-mersize", merSize, "-minocc",
-				"1", "-indexname", tempDir.getAbsolutePath() + File.separator + tallymerIndexName, "-counts", "-pl",
-				"-esa", tempDir.getAbsolutePath() + File.separator + suffixeratorIndexName));
+				"1", "-indexname", workDir.getAbsolutePath() + File.separator + tallymerIndexName, "-counts", "-pl",
+				"-esa", workDir.getAbsolutePath() + File.separator + suffixeratorIndexName));
 
 		/*
 		 * Delete the temporary files and upload the GT output back to HDFS
 		 */
-		file.delete();
+		inputFastaFile.delete();
 
-		FileSystem dstFileSystem = FileSystem.get(context.getConfiguration());
-		Path dstParentPath = FileOutputFormat.getOutputPath(context);
+		FileSystem dfsFileSystem = FileSystem.get(context.getConfiguration());
+		Path outputPath = FileOutputFormat.getOutputPath(context);
 
 		// delete the target dir for this mapper if it exists (usually not
 		// required, but have seen one instance where a mapper was restarted and
 		// the dir existed from the previous run, causing the new mapper to
 		// go into loop
-		Path dstChildPath = new Path(dstParentPath, fileName);
-		if (dstFileSystem.exists(dstChildPath)) {
-			dstFileSystem.delete(dstChildPath, true);
+		Path fastaOutputPath = new Path(outputPath, fastaName);
+		if (dfsFileSystem.exists(fastaOutputPath)) {
+			dfsFileSystem.delete(fastaOutputPath, true);
 		}
 
-		FileUtil.copy(tempDir, dstFileSystem, dstParentPath, false, context.getConfiguration());
+		FileUtil.copy(workDir, dfsFileSystem, outputPath, false, context.getConfiguration());
 
-		FileUtils.deleteDirectory(tempDir);
+		FileUtils.deleteDirectory(workDir);
 
-		context.write(new Text(fileName), new Text(tallymerIndexName));
+		context.write(new Text("index"), new Text(fastaName + "\t" + tallymerIndexName));
 	}
 }

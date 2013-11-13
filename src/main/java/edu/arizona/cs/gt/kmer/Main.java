@@ -26,12 +26,10 @@ public class Main extends Configured implements Tool {
 
 		// Setup mapper
 		job.setMapperClass(GTToolInvokerMapper.class);
+		job.setReducerClass(IndexReducer.class);
 
 		job.setMapOutputKeyClass(Text.class);
 		job.setMapOutputValueClass(Text.class);
-
-		// No reducer
-		job.setNumReduceTasks(0);
 
 		job.setOutputKeyClass(Text.class);
 		job.setOutputValueClass(Text.class);
